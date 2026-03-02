@@ -65,7 +65,10 @@ to Zed.
 2. Install in Zed:
    - `zed: install dev extension`
    - Select this folder.
-3. Open assistant panel and run:
+3. Open Assistant/Agent chat and run:
+   - UI note:
+     - In current Zed builds, you may only see `Agent` mode.
+     - Run these slash commands in the Agent chat input (same command behavior).
    - Individual setup flow:
      - `/overleaf-set-base-url https://www.overleaf.com`
      - `/overleaf-set-project-id 699f54729b18bea9d5fbf71d`
