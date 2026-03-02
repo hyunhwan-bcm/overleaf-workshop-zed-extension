@@ -64,6 +64,12 @@ impl zed::Extension for OverleafWorkshopExtension {
                 new_text: "https://www.overleaf.com ".to_string(),
                 run_command: false,
             }]),
+            "overleaf-errors" => Ok(vec![zed::SlashCommandArgumentCompletion {
+                label: "https://www.overleaf.com <project-id> overleaf_session2=<cookie>"
+                    .to_string(),
+                new_text: "https://www.overleaf.com ".to_string(),
+                run_command: false,
+            }]),
             _ => Err(format!("unknown slash command: {}", command.name)),
         }
     }
@@ -77,6 +83,7 @@ impl zed::Extension for OverleafWorkshopExtension {
         match command.name.as_str() {
             "overleaf-projects" => run_overleaf_projects(args),
             "overleaf-compile" => run_overleaf_compile(args),
+            "overleaf-errors" => run_overleaf_errors(args),
             _ => Err(format!("unknown slash command: {}", command.name)),
         }
     }
@@ -128,32 +135,7 @@ fn run_overleaf_projects(args: Vec<String>) -> Result<zed::SlashCommandOutput> {
 
 fn run_overleaf_compile(args: Vec<String>) -> Result<zed::SlashCommandOutput> {
     let (server_base, project_id, cookie) = parse_server_project_and_cookie(args)?;
-
-    let project_page = fetch_text(&format!("{server_base}/project/{project_id}"), &cookie)?;
-    let csrf_token = extract_meta_content(&project_page, "ol-csrfToken")
-        .ok_or_else(|| "failed to read CSRF token from project page.".to_string())?;
-
-    let compile_payload = post_json(
-        &format!("{server_base}/project/{project_id}/compile?auto_compile=true"),
-        &cookie,
-        &csrf_token,
-        serde_json::json!({
-            "_csrf": csrf_token,
-            "check": "silent",
-            "draft": false,
-            "incrementalCompilesEnabled": true,
-            "rootDoc_id": serde_json::Value::Null,
-            "stopOnFirstError": false
-        })
-        .to_string(),
-    )?;
-
-    let compile: CompileResponse = serde_json::from_str(&compile_payload).map_err(|_| {
-        format!(
-            "failed to parse compile response from Overleaf. Response starts with: {}",
-            snippet(&compile_payload, 240)
-        )
-    })?;
+    let compile = request_compile(&server_base, &project_id, &cookie)?;
 
     let mut text = format!(
         "Compile request submitted for project `{project_id}` on `{server_base}`.\n\nStatus: `{}`\n",
@@ -195,6 +177,90 @@ fn run_overleaf_compile(args: Vec<String>) -> Result<zed::SlashCommandOutput> {
     Ok(zed::SlashCommandOutput {
         text,
         sections: vec![section],
+    })
+}
+
+fn run_overleaf_errors(args: Vec<String>) -> Result<zed::SlashCommandOutput> {
+    let (server_base, project_id, cookie) = parse_server_project_and_cookie(args)?;
+    let compile = request_compile(&server_base, &project_id, &cookie)?;
+    let log_url = find_output_log_url(&server_base, &compile).ok_or_else(|| {
+        "compile response did not include `output.log`. cannot summarize compile errors."
+            .to_string()
+    })?;
+    let log_text = fetch_text(&log_url, &cookie)?;
+    let (errors, warnings) = summarize_log_issues(&log_text);
+
+    let mut text = format!(
+        "Error summary for project `{project_id}` on `{server_base}`.\n\nStatus: `{}`\nLog: {log_url}\n",
+        compile.status
+    );
+    if !compile.compile_group.is_empty() {
+        text.push_str(&format!("Compile group: `{}`\n", compile.compile_group));
+    }
+
+    text.push_str(&format!(
+        "\nDetected `{}` errors and `{}` warnings from `output.log`.\n",
+        errors.len(),
+        warnings.len()
+    ));
+
+    if errors.is_empty() {
+        text.push_str("\nNo `! ...` error lines found.\n");
+    } else {
+        text.push_str("\nErrors:\n");
+        for entry in errors.into_iter().take(12) {
+            text.push_str(&format!("- {entry}\n"));
+        }
+    }
+
+    if warnings.is_empty() {
+        text.push_str("\nNo `Warning:` lines found.\n");
+    } else {
+        text.push_str("\nWarnings:\n");
+        for entry in warnings.into_iter().take(12) {
+            text.push_str(&format!("- {entry}\n"));
+        }
+    }
+
+    let section = zed::SlashCommandOutputSection {
+        range: zed::Range {
+            start: 0,
+            end: text.len() as u32,
+        },
+        label: "Overleaf Errors".to_string(),
+    };
+
+    Ok(zed::SlashCommandOutput {
+        text,
+        sections: vec![section],
+    })
+}
+
+fn request_compile(server_base: &str, project_id: &str, cookie: &str) -> Result<CompileResponse> {
+    let project_page = fetch_text(&format!("{server_base}/project/{project_id}"), cookie)?;
+    let csrf_token = extract_meta_content(&project_page, "ol-csrfToken")
+        .ok_or_else(|| "failed to read CSRF token from project page.".to_string())?;
+
+    let compile_payload = post_json(
+        &format!("{server_base}/project/{project_id}/compile?auto_compile=true"),
+        cookie,
+        &csrf_token,
+        serde_json::json!({
+            "_csrf": csrf_token,
+            "check": "silent",
+            "draft": false,
+            "incrementalCompilesEnabled": true,
+            "rootDoc_id": serde_json::Value::Null,
+            "stopOnFirstError": false
+        })
+        .to_string(),
+    )?;
+
+    serde_json::from_str(&compile_payload).map_err(|_| {
+        format!(
+            "failed to parse compile response from Overleaf. Response starts with: {}",
+            snippet(&compile_payload, 240)
+        )
     })
 }
 
@@ -302,6 +368,55 @@ fn absolutize_url(server_base: &str, path_or_url: &str) -> String {
             server_base.trim_end_matches('/'),
             path_or_url.trim_start_matches('/')
         )
+    }
+}
+
+fn find_output_log_url(server_base: &str, compile: &CompileResponse) -> Option<String> {
+    compile
+        .output_files
+        .iter()
+        .find(|file| file.path == "output.log" || file.r#type == "log")
+        .and_then(|file| {
+            if file.url.is_empty() {
+                None
+            } else {
+                Some(absolutize_url(server_base, &file.url))
+            }
+        })
+}
+
+fn summarize_log_issues(log_text: &str) -> (Vec<String>, Vec<String>) {
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+
+    for line in log_text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if trimmed.starts_with('!') {
+            let error_text = trimmed.trim_start_matches('!').trim();
+            push_unique_issue(&mut errors, error_text);
+            continue;
+        }
+
+        if trimmed.contains("Warning:") {
+            push_unique_issue(&mut warnings, trimmed);
+        }
+    }
+
+    (errors, warnings)
+}
+
+fn push_unique_issue(items: &mut Vec<String>, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+
+    let normalized = text.to_string();
+    if !items.iter().any(|existing| existing == &normalized) {
+        items.push(normalized);
     }
 }
 
