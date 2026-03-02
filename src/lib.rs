@@ -1015,6 +1015,13 @@ fn context_from_worktree(worktree: Option<&zed::Worktree>) -> Option<OverleafCon
             }
         }
     }
+
+    if let Ok(contents) = worktree.read_text_file(".env") {
+        if let Some(context) = parse_dotenv_context(&contents) {
+            return Some(context);
+        }
+    }
+
     None
 }
 
@@ -1038,6 +1045,69 @@ fn parse_persistent_context(contents: &str) -> Option<OverleafContext> {
     let project_id = parsed.project_id;
     let cookie_raw = parsed.cookie_header.or(parsed.session);
     build_context(server_base, project_id, cookie_raw)
+}
+
+fn parse_dotenv_context(contents: &str) -> Option<OverleafContext> {
+    let mut server_base: Option<String> = None;
+    let mut project_id: Option<String> = None;
+    let mut cookie_raw: Option<String> = None;
+
+    for raw_line in contents.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let line = if let Some(rest) = line.strip_prefix("export ") {
+            rest.trim()
+        } else {
+            line
+        };
+
+        let Some((key_raw, value_raw)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key_raw.trim();
+        let value = parse_dotenv_value(value_raw);
+
+        match key {
+            "OVERLEAF_BASE_URL" | "OVERLEAF_SERVER" => {
+                if !value.is_empty() {
+                    server_base = Some(normalize_server(value.trim()));
+                }
+            }
+            "OVERLEAF_PROJECT_ID" => {
+                if !value.is_empty() {
+                    project_id = Some(value);
+                }
+            }
+            "OVERLEAF_COOKIE" | "OVERLEAF_SESSION" | "OVERLEAF_SESSION2" => {
+                if !value.is_empty() {
+                    cookie_raw = Some(value);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    build_context(server_base, project_id, cookie_raw)
+}
+
+fn parse_dotenv_value(value_raw: &str) -> String {
+    let trimmed = value_raw.trim();
+    if trimmed.len() >= 2 {
+        let starts_double = trimmed.starts_with('"');
+        let ends_double = trimmed.ends_with('"');
+        let starts_single = trimmed.starts_with('\'');
+        let ends_single = trimmed.ends_with('\'');
+
+        if (starts_double && ends_double) || (starts_single && ends_single) {
+            return trimmed[1..trimmed.len() - 1].trim().to_string();
+        }
+    }
+
+    let no_comment = trimmed.split('#').next().unwrap_or("").trim();
+    no_comment.to_string()
 }
 
 fn build_context(

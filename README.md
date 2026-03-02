@@ -80,7 +80,8 @@ When a command is missing values, the extension resolves context in this order:
 1. Explicit slash command arguments
 2. In-memory context from `/overleaf-set-*` commands
 3. Worktree config file (`.overleaf-workshop.json` or `overleaf-workshop.json`)
-4. Environment variables
+4. Worktree `.env` file
+5. Process environment variables
 
 This allows durable defaults without retyping values each Zed restart.
 
@@ -105,6 +106,21 @@ You can also set:
 - `OVERLEAF_BASE_URL` (or `OVERLEAF_SERVER`)
 - `OVERLEAF_PROJECT_ID`
 - `OVERLEAF_COOKIE` (or `OVERLEAF_SESSION`, `OVERLEAF_SESSION2`)
+
+### `.env` Auto-Load
+
+If your project root has a `.env` file, the extension will read:
+
+```dotenv
+OVERLEAF_BASE_URL=https://www.overleaf.com
+OVERLEAF_PROJECT_ID=699f54729b18bea9d5fbf71d
+OVERLEAF_SESSION2=<session-id>
+```
+
+Equivalent keys also work:
+
+- `OVERLEAF_SERVER` for base URL
+- `OVERLEAF_COOKIE` or `OVERLEAF_SESSION` for session
 
 ## Local Development
 
