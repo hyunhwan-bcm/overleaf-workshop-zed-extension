@@ -335,6 +335,7 @@ fn parse_server_and_cookie(
     args: Vec<String>,
     context: Option<&OverleafContext>,
 ) -> Result<(String, String)> {
+    let args = normalize_args(args);
     if args.is_empty() {
         if let Some(saved) = context {
             return Ok((saved.server_base.clone(), saved.cookie_header.clone()));
@@ -343,30 +344,25 @@ fn parse_server_and_cookie(
             "usage: /overleaf-projects <server-url> <cookie-header>\nexample: /overleaf-projects https://www.overleaf.com overleaf_session2=<cookie>\nor set defaults first with /overleaf-set-context".to_string()
         );
     }
-    if args.len() < 2 {
+    if args.len() == 1 {
+        if let Some(saved) = context {
+            return Ok((normalize_server(&args[0]), saved.cookie_header.clone()));
+        }
         return Err(
-            "usage: /overleaf-projects <server-url> <cookie-header>\nexample: /overleaf-projects https://www.overleaf.com overleaf_session2=<cookie>".to_string()
+            "usage: /overleaf-projects <server-url> <cookie-header>\nexample: /overleaf-projects https://www.overleaf.com overleaf_session2=<cookie>\nor set defaults first with /overleaf-set-context".to_string()
         );
     }
 
-    let server = args[0].trim();
-    let cookie = args[1..].join(" ");
-    let cookie = cookie.trim();
-    if server.is_empty() || cookie.is_empty() {
-        return Err(
-            "usage: /overleaf-projects <server-url> <cookie-header>\nexample: /overleaf-projects https://www.overleaf.com overleaf_session2=<cookie>".to_string()
-        );
-    }
-
-    let normalized_server = normalize_server(server);
-
-    Ok((normalized_server, cookie.to_string()))
+    let normalized_server = normalize_server(&args[0]);
+    let cookie = cookie_from_input(&args[1..].join(" "))?;
+    Ok((normalized_server, cookie))
 }
 
 fn parse_server_project_and_cookie(
     args: Vec<String>,
     context: Option<&OverleafContext>,
 ) -> Result<(String, String, String)> {
+    let args = normalize_args(args);
     if args.is_empty() {
         if let Some(saved) = context {
             return Ok((
@@ -379,6 +375,39 @@ fn parse_server_project_and_cookie(
             "usage: /overleaf-compile <server-url> <project-id> <cookie-header>\nexample: /overleaf-compile https://www.overleaf.com 1234567890abcdef12345678 overleaf_session2=<cookie>\nor set defaults first with /overleaf-set-context".to_string()
         );
     }
+
+    if let Some(saved) = context {
+        if args.len() == 1 {
+            if looks_like_server(&args[0]) {
+                return Ok((
+                    normalize_server(&args[0]),
+                    saved.project_id.clone(),
+                    saved.cookie_header.clone(),
+                ));
+            }
+            return Ok((
+                saved.server_base.clone(),
+                args[0].clone(),
+                saved.cookie_header.clone(),
+            ));
+        }
+
+        if args.len() == 2 {
+            if looks_like_server(&args[0]) {
+                return Ok((
+                    normalize_server(&args[0]),
+                    args[1].clone(),
+                    saved.cookie_header.clone(),
+                ));
+            }
+            return Ok((
+                saved.server_base.clone(),
+                args[0].clone(),
+                cookie_from_input(&args[1])?,
+            ));
+        }
+    }
+
     parse_server_project_and_cookie_explicit(args)
 }
 
@@ -391,22 +420,22 @@ fn parse_server_project_and_cookie_explicit(args: Vec<String>) -> Result<(String
 
     let server = args[0].trim();
     let project_id = args[1].trim();
-    let cookie = args[2..].join(" ");
-    let cookie = cookie.trim();
-    if server.is_empty() || project_id.is_empty() || cookie.is_empty() {
+    if server.is_empty() || project_id.is_empty() {
         return Err(
             "usage: /overleaf-compile <server-url> <project-id> <cookie-header>\nexample: /overleaf-compile https://www.overleaf.com 1234567890abcdef12345678 overleaf_session2=<cookie>".to_string()
         );
     }
+    let cookie = cookie_from_input(&args[2..].join(" "))?;
 
     Ok((
         normalize_server(server),
         project_id.to_string(),
-        cookie.to_string(),
+        cookie,
     ))
 }
 
 fn parse_context_args(args: Vec<String>) -> Result<OverleafContext> {
+    let args = normalize_args(args);
     if args.len() < 2 {
         return Err(
             "usage: /overleaf-set-context <project-id> <session-id>\n   or: /overleaf-set-context <server-url> <project-id> <session-id>".to_string()
@@ -433,12 +462,7 @@ fn parse_context_args(args: Vec<String>) -> Result<OverleafContext> {
             "usage: /overleaf-set-context <project-id> <session-id>\n   or: /overleaf-set-context <server-url> <project-id> <session-id>".to_string()
         );
     }
-
-    let cookie_header = if session_input.contains('=') {
-        session_input.to_string()
-    } else {
-        format!("overleaf_session2={session_input}")
-    };
+    let cookie_header = cookie_from_input(session_input)?;
 
     Ok(OverleafContext {
         server_base,
@@ -453,6 +477,31 @@ fn load_context(extension: &OverleafWorkshopExtension) -> Result<Option<Overleaf
         .lock()
         .map_err(|_| "failed to lock in-memory context storage.".to_string())
         .map(|guard| guard.clone())
+}
+
+fn normalize_args(args: Vec<String>) -> Vec<String> {
+    args.into_iter()
+        .map(|arg| arg.trim().to_string())
+        .filter(|arg| !arg.is_empty())
+        .collect()
+}
+
+fn cookie_from_input(input: &str) -> Result<String> {
+    let value = input.trim();
+    if value.is_empty() {
+        return Err("cookie/session value is empty.".to_string());
+    }
+    if value.contains('=') {
+        Ok(value.to_string())
+    } else {
+        Ok(format!("overleaf_session2={value}"))
+    }
+}
+
+fn looks_like_server(value: &str) -> bool {
+    value.starts_with("http://")
+        || value.starts_with("https://")
+        || value.contains('.')
 }
 
 fn mask_cookie(cookie_header: &str) -> String {

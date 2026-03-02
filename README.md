@@ -40,6 +40,9 @@ to Zed.
   - Behavior:
     - Stores server/project/session in extension memory for this Zed session.
     - After setting context, `/overleaf-projects`, `/overleaf-compile`, and `/overleaf-errors` can be run with no arguments.
+    - Partial overrides are supported after context is set:
+      - `/overleaf-compile https://www.overleaf.com` (reuse saved project/session)
+      - `/overleaf-errors 699f54729b18bea9d5fbf71d` (reuse saved server/session)
 
 ## Local Development
 
