@@ -11,15 +11,15 @@ kind = "Rust"
 
 [slash_commands.overleaf-projects]
 description = "List Overleaf projects from a server URL + cookie header."
-requires_argument = true
+requires_argument = false
 
 [slash_commands.overleaf-compile]
 description = "Compile an Overleaf project by project id using server URL + cookie header."
-requires_argument = true
+requires_argument = false
 
 [slash_commands.overleaf-errors]
 description = "Compile an Overleaf project and summarize errors/warnings from output.log."
-requires_argument = true
+requires_argument = false
 
 [slash_commands.overleaf-set-context]
 description = "Set default server/project/session context for Overleaf commands."
