@@ -39,8 +39,9 @@ to Zed.
   - `/overleaf-project-unarchive [project-id]`
   - `/overleaf-project-trash [project-id]`
   - `/overleaf-project-untrash [project-id]`
-  - `/overleaf-project-delete [project-id]`
-    - Project lifecycle operations. If `project-id` is omitted, uses saved context project.
+  - `/overleaf-project-delete`
+    - Disabled for safety. Use trash/untrash flows.
+    - Project lifecycle operations use saved context project when `project-id` is omitted.
   - Behavior notes:
     - These commands use saved base URL/session context.
     - `project-id` is expected to be a 24-char hex Overleaf id when provided.
@@ -131,7 +132,6 @@ You can also set:
    - `/overleaf-project-untrash 699f54729b18bea9d5fbf71d`
    - `/overleaf-project-archive 699f54729b18bea9d5fbf71d`
    - `/overleaf-project-unarchive 699f54729b18bea9d5fbf71d`
-   - `/overleaf-project-delete 699f54729b18bea9d5fbf71d`
    - Or, after setting context:
      - `/overleaf-projects`
      - `/overleaf-compile`

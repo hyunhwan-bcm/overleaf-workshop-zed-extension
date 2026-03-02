@@ -46,8 +46,8 @@ description = "Restore an Overleaf project from trash by id or current context p
 requires_argument = false
 
 [slash_commands.overleaf-project-delete]
-description = "Permanently delete an Overleaf project by id or current context project id."
-requires_argument = false
+description = "Disabled for safety. Use overleaf-project-trash instead."
+requires_argument = true
 
 [slash_commands.overleaf-set-context]
 description = "Set default server/project/session context for Overleaf commands."

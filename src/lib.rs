@@ -132,7 +132,7 @@ impl zed::Extension for OverleafWorkshopExtension {
                 run_command: false,
             }]),
             "overleaf-project-delete" => Ok(vec![zed::SlashCommandArgumentCompletion {
-                label: "[project-id]".to_string(),
+                label: "(disabled for safety)".to_string(),
                 new_text: "".to_string(),
                 run_command: false,
             }]),
@@ -177,7 +177,7 @@ impl zed::Extension for OverleafWorkshopExtension {
             "overleaf-project-unarchive" => run_overleaf_project_unarchive(self, args, worktree),
             "overleaf-project-trash" => run_overleaf_project_trash(self, args, worktree),
             "overleaf-project-untrash" => run_overleaf_project_untrash(self, args, worktree),
-            "overleaf-project-delete" => run_overleaf_project_delete(self, args, worktree),
+            "overleaf-project-delete" => run_overleaf_project_delete_disabled(),
             "overleaf-set-context" => run_overleaf_set_context(self, args),
             "overleaf-set-base-url" => run_overleaf_set_base_url(self, args, worktree),
             "overleaf-set-project-id" => run_overleaf_set_project_id(self, args, worktree),
@@ -401,7 +401,7 @@ fn run_overleaf_project_rename(
     let (server_base, cookie) = context_server_and_cookie(context.as_ref())?;
     let default_project_id = context_project(context.as_ref());
     let (project_id, new_name) = parse_project_rename_args(args, default_project_id)?;
-    let csrf_token = read_csrf_token(&server_base, Some(&project_id), &cookie)?;
+    let csrf_token = read_csrf_token(&server_base, None, &cookie)?;
 
     let response = post_json(
         &format!("{server_base}/project/{project_id}/rename"),
@@ -477,19 +477,8 @@ fn run_overleaf_project_untrash(
     )
 }
 
-fn run_overleaf_project_delete(
-    extension: &OverleafWorkshopExtension,
-    args: Vec<String>,
-    worktree: Option<&zed::Worktree>,
-) -> Result<zed::SlashCommandOutput> {
-    run_project_action_delete(
-        extension,
-        worktree,
-        args,
-        "overleaf-project-delete",
-        "Deleted project",
-        |server_base, project_id| format!("{server_base}/project/{project_id}"),
-    )
+fn run_overleaf_project_delete_disabled() -> Result<zed::SlashCommandOutput> {
+    Err("`/overleaf-project-delete` is disabled for safety.\nUse `/overleaf-project-trash` to move a project to trash instead.".to_string())
 }
 
 fn run_overleaf_set_context(
@@ -727,7 +716,7 @@ where
     let (server_base, cookie) = context_server_and_cookie(context.as_ref())?;
     let default_project_id = context_project(context.as_ref());
     let project_id = parse_action_project_id(args, default_project_id, command_name)?;
-    let csrf_token = read_csrf_token(&server_base, Some(&project_id), &cookie)?;
+    let csrf_token = read_csrf_token(&server_base, None, &cookie)?;
     let route = route_builder(&server_base, &project_id);
     let response = post_json(
         &route,
@@ -753,7 +742,7 @@ where
     let (server_base, cookie) = context_server_and_cookie(context.as_ref())?;
     let default_project_id = context_project(context.as_ref());
     let project_id = parse_action_project_id(args, default_project_id, command_name)?;
-    let csrf_token = read_csrf_token(&server_base, Some(&project_id), &cookie)?;
+    let csrf_token = read_csrf_token(&server_base, None, &cookie)?;
     let route = route_builder(&server_base, &project_id);
     let response = delete_with_csrf(&route, &cookie, &csrf_token)?;
     project_action_output(action_label, &server_base, &project_id, response)
@@ -765,6 +754,7 @@ fn project_action_output(
     project_id: &str,
     response: String,
 ) -> Result<zed::SlashCommandOutput> {
+    assert_action_response_ok(action_label, &response)?;
     let response_suffix = if response.trim().is_empty() {
         String::new()
     } else {
@@ -777,6 +767,37 @@ fn project_action_output(
         "Overleaf Project",
         format!("{action_label} `{project_id}` on `{server_base}`.{response_suffix}"),
     )
+}
+
+fn assert_action_response_ok(action_label: &str, response: &str) -> Result<()> {
+    let trimmed = response.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let has_failure_signal = [
+        "error",
+        "forbidden",
+        "unauthorized",
+        "not found",
+        "csrf",
+        "redirecting to /login",
+        "redirecting to /project",
+        "<html",
+        "<!doctype html",
+    ]
+    .iter()
+    .any(|signal| lower.contains(signal));
+
+    if has_failure_signal {
+        return Err(format!(
+            "{action_label} appears to have failed.\n\nServer response preview:\n```\n{}\n```",
+            snippet(trimmed, 280)
+        ));
+    }
+
+    Ok(())
 }
 
 fn read_csrf_token(server_base: &str, project_id: Option<&str>, cookie: &str) -> Result<String> {
