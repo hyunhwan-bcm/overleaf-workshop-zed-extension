@@ -14,6 +14,14 @@ to Zed.
     - Validates login by requesting `/project` and checking `ol-user_id`.
     - Fetches project list from `/user/projects`.
     - Returns a Markdown table with project status and direct project URLs.
+- Slash command: `/overleaf-compile`
+  - Input format: `<server-url> <project-id> <cookie-header>`
+  - Example:
+    - `/overleaf-compile https://www.overleaf.com 1234567890abcdef12345678 overleaf_session2=<cookie>`
+  - Behavior:
+    - Reads CSRF token from `/project/<project-id>`.
+    - Triggers compile via `POST /project/<project-id>/compile?auto_compile=true`.
+    - Returns compile status and output file links from the compile response.
 
 ## Local Development
 
@@ -24,6 +32,7 @@ to Zed.
    - Select this folder.
 3. Open assistant panel and run:
    - `/overleaf-projects https://www.overleaf.com overleaf_session2=<cookie>`
+   - `/overleaf-compile https://www.overleaf.com <project-id> overleaf_session2=<cookie>`
 
 ## Notes
 
