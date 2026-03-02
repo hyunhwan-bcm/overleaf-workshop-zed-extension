@@ -1,0 +1,14 @@
+id = "overleaf-workshop-zed"
+name = "Overleaf Workshop (Zed)"
+version = "0.1.0"
+schema_version = 1
+authors = ["Overleaf Workshop Contributors", "Ported by Codex"]
+description = "Zed port of Overleaf Workshop, starting with Overleaf project access via slash commands."
+repository = "https://github.com/overleaf-workshop/Overleaf-Workshop"
+
+[lib]
+kind = "Rust"
+
+[slash_commands.overleaf-projects]
+description = "List Overleaf projects from a server URL + cookie header."
+requires_argument = true
