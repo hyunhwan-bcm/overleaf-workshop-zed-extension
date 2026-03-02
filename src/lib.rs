@@ -398,8 +398,8 @@ fn run_overleaf_project_rename(
     worktree: Option<&zed::Worktree>,
 ) -> Result<zed::SlashCommandOutput> {
     let context = resolve_context(extension, worktree)?;
-    let (server_base, default_project_id, cookie) =
-        context_server_project_and_cookie(context.as_ref())?;
+    let (server_base, cookie) = context_server_and_cookie(context.as_ref())?;
+    let default_project_id = context_project(context.as_ref());
     let (project_id, new_name) = parse_project_rename_args(args, default_project_id)?;
     let csrf_token = read_csrf_token(&server_base, Some(&project_id), &cookie)?;
 
@@ -653,16 +653,6 @@ fn context_server_and_cookie(context: Option<&OverleafContext>) -> Result<(Strin
     Ok((server_base, cookie))
 }
 
-fn context_server_project_and_cookie(
-    context: Option<&OverleafContext>,
-) -> Result<(String, String, String)> {
-    let (server_base, cookie) = context_server_and_cookie(context)?;
-    let project_id = context_project(context).ok_or_else(|| {
-        "missing project-id.\nset it with:\n- /overleaf-set-project-id <project-id>".to_string()
-    })?;
-    Ok((server_base, project_id, cookie))
-}
-
 fn parse_project_name(args: Vec<String>) -> Result<String> {
     let args = normalize_args(args);
     let project_name = args.join(" ").trim().to_string();
@@ -676,7 +666,7 @@ fn parse_project_name(args: Vec<String>) -> Result<String> {
 
 fn parse_project_rename_args(
     args: Vec<String>,
-    default_project_id: String,
+    default_project_id: Option<String>,
 ) -> Result<(String, String)> {
     let args = normalize_args(args);
     if args.is_empty() {
@@ -695,23 +685,30 @@ fn parse_project_rename_args(
         return Ok((args[0].clone(), new_name));
     }
 
-    Ok((default_project_id, args.join(" ")))
+    let fallback_project_id = default_project_id.ok_or_else(|| {
+        "missing project-id.\nset it with:\n- /overleaf-set-project-id <project-id>\nor pass explicit id:\n- /overleaf-project-rename <project-id> <new-project-name>".to_string()
+    })?;
+    Ok((fallback_project_id, args.join(" ")))
 }
 
 fn parse_action_project_id(
     args: Vec<String>,
-    default_project_id: String,
+    default_project_id: Option<String>,
     command_name: &str,
 ) -> Result<String> {
     let args = normalize_args(args);
     if args.is_empty() {
-        return Ok(default_project_id);
+        return default_project_id.ok_or_else(|| {
+            format!(
+                "missing project-id.\nset it with:\n- /overleaf-set-project-id <project-id>\nor pass explicit id:\n- /{command_name} <project-id>"
+            )
+        });
     }
     if args.len() == 1 && looks_like_project_id(&args[0]) {
         return Ok(args[0].clone());
     }
     Err(format!(
-        "usage: /{command_name} [project-id]\nexample: /{command_name} {default_project_id}"
+        "usage: /{command_name} [project-id]\nexample: /{command_name} 699f54729b18bea9d5fbf71d"
     ))
 }
 
@@ -727,8 +724,8 @@ where
     F: Fn(&str, &str) -> String,
 {
     let context = resolve_context(extension, worktree)?;
-    let (server_base, default_project_id, cookie) =
-        context_server_project_and_cookie(context.as_ref())?;
+    let (server_base, cookie) = context_server_and_cookie(context.as_ref())?;
+    let default_project_id = context_project(context.as_ref());
     let project_id = parse_action_project_id(args, default_project_id, command_name)?;
     let csrf_token = read_csrf_token(&server_base, Some(&project_id), &cookie)?;
     let route = route_builder(&server_base, &project_id);
@@ -753,8 +750,8 @@ where
     F: Fn(&str, &str) -> String,
 {
     let context = resolve_context(extension, worktree)?;
-    let (server_base, default_project_id, cookie) =
-        context_server_project_and_cookie(context.as_ref())?;
+    let (server_base, cookie) = context_server_and_cookie(context.as_ref())?;
+    let default_project_id = context_project(context.as_ref());
     let project_id = parse_action_project_id(args, default_project_id, command_name)?;
     let csrf_token = read_csrf_token(&server_base, Some(&project_id), &cookie)?;
     let route = route_builder(&server_base, &project_id);
