@@ -20,3 +20,7 @@ requires_argument = true
 [slash_commands.overleaf-errors]
 description = "Compile an Overleaf project and summarize errors/warnings from output.log."
 requires_argument = true
+
+[slash_commands.overleaf-set-context]
+description = "Set default server/project/session context for Overleaf commands."
+requires_argument = true

@@ -30,6 +30,16 @@ to Zed.
     - Triggers compile with the same endpoint as `/overleaf-compile`.
     - Fetches `output.log` from compile artifacts.
     - Summarizes unique error (`! ...`) and warning (`Warning:`) lines.
+- Slash command: `/overleaf-set-context`
+  - Input format:
+    - `<project-id> <session-id>` (defaults server to `https://www.overleaf.com`)
+    - or `<server-url> <project-id> <session-id>`
+  - Examples:
+    - `/overleaf-set-context 699f54729b18bea9d5fbf71d <session-id>`
+    - `/overleaf-set-context https://www.overleaf.com 699f54729b18bea9d5fbf71d overleaf_session2=<cookie>`
+  - Behavior:
+    - Stores server/project/session in extension memory for this Zed session.
+    - After setting context, `/overleaf-projects`, `/overleaf-compile`, and `/overleaf-errors` can be run with no arguments.
 
 ## Local Development
 
@@ -39,9 +49,14 @@ to Zed.
    - `zed: install dev extension`
    - Select this folder.
 3. Open assistant panel and run:
+   - `/overleaf-set-context <project-id> <session-id>`
    - `/overleaf-projects https://www.overleaf.com overleaf_session2=<cookie>`
    - `/overleaf-compile https://www.overleaf.com <project-id> overleaf_session2=<cookie>`
    - `/overleaf-errors https://www.overleaf.com <project-id> overleaf_session2=<cookie>`
+   - Or, after setting context:
+     - `/overleaf-projects`
+     - `/overleaf-compile`
+     - `/overleaf-errors`
 
 ## Notes
 

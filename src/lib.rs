@@ -1,7 +1,18 @@
+use std::sync::Mutex;
+
 use serde::Deserialize;
 use zed_extension_api::{self as zed, Result};
 
-struct OverleafWorkshopExtension;
+struct OverleafWorkshopExtension {
+    context: Mutex<Option<OverleafContext>>,
+}
+
+#[derive(Clone, Debug)]
+struct OverleafContext {
+    server_base: String,
+    project_id: String,
+    cookie_header: String,
+}
 
 #[derive(Debug, Deserialize)]
 struct ProjectsResponse {
@@ -44,7 +55,9 @@ impl zed::Extension for OverleafWorkshopExtension {
     where
         Self: Sized,
     {
-        Self
+        Self {
+            context: Mutex::new(None),
+        }
     }
 
     fn complete_slash_command_argument(
@@ -70,6 +83,11 @@ impl zed::Extension for OverleafWorkshopExtension {
                 new_text: "https://www.overleaf.com ".to_string(),
                 run_command: false,
             }]),
+            "overleaf-set-context" => Ok(vec![zed::SlashCommandArgumentCompletion {
+                label: "<project-id> <session-id>".to_string(),
+                new_text: "699f54729b18bea9d5fbf71d ".to_string(),
+                run_command: false,
+            }]),
             _ => Err(format!("unknown slash command: {}", command.name)),
         }
     }
@@ -81,16 +99,21 @@ impl zed::Extension for OverleafWorkshopExtension {
         _worktree: Option<&zed::Worktree>,
     ) -> Result<zed::SlashCommandOutput> {
         match command.name.as_str() {
-            "overleaf-projects" => run_overleaf_projects(args),
-            "overleaf-compile" => run_overleaf_compile(args),
-            "overleaf-errors" => run_overleaf_errors(args),
+            "overleaf-projects" => run_overleaf_projects(self, args),
+            "overleaf-compile" => run_overleaf_compile(self, args),
+            "overleaf-errors" => run_overleaf_errors(self, args),
+            "overleaf-set-context" => run_overleaf_set_context(self, args),
             _ => Err(format!("unknown slash command: {}", command.name)),
         }
     }
 }
 
-fn run_overleaf_projects(args: Vec<String>) -> Result<zed::SlashCommandOutput> {
-    let (server_base, cookie) = parse_server_and_cookie(args)?;
+fn run_overleaf_projects(
+    extension: &OverleafWorkshopExtension,
+    args: Vec<String>,
+) -> Result<zed::SlashCommandOutput> {
+    let context = load_context(extension)?;
+    let (server_base, cookie) = parse_server_and_cookie(args, context.as_ref())?;
 
     let project_page = fetch_text(&format!("{server_base}/project"), &cookie)?;
     let user_id = extract_meta_content(&project_page, "ol-user_id").ok_or_else(|| {
@@ -133,8 +156,13 @@ fn run_overleaf_projects(args: Vec<String>) -> Result<zed::SlashCommandOutput> {
     })
 }
 
-fn run_overleaf_compile(args: Vec<String>) -> Result<zed::SlashCommandOutput> {
-    let (server_base, project_id, cookie) = parse_server_project_and_cookie(args)?;
+fn run_overleaf_compile(
+    extension: &OverleafWorkshopExtension,
+    args: Vec<String>,
+) -> Result<zed::SlashCommandOutput> {
+    let context = load_context(extension)?;
+    let (server_base, project_id, cookie) =
+        parse_server_project_and_cookie(args, context.as_ref())?;
     let compile = request_compile(&server_base, &project_id, &cookie)?;
 
     let mut text = format!(
@@ -180,8 +208,13 @@ fn run_overleaf_compile(args: Vec<String>) -> Result<zed::SlashCommandOutput> {
     })
 }
 
-fn run_overleaf_errors(args: Vec<String>) -> Result<zed::SlashCommandOutput> {
-    let (server_base, project_id, cookie) = parse_server_project_and_cookie(args)?;
+fn run_overleaf_errors(
+    extension: &OverleafWorkshopExtension,
+    args: Vec<String>,
+) -> Result<zed::SlashCommandOutput> {
+    let context = load_context(extension)?;
+    let (server_base, project_id, cookie) =
+        parse_server_project_and_cookie(args, context.as_ref())?;
     let compile = request_compile(&server_base, &project_id, &cookie)?;
     let log_url = find_output_log_url(&server_base, &compile).ok_or_else(|| {
         "compile response did not include `output.log`. cannot summarize compile errors."
@@ -236,6 +269,40 @@ fn run_overleaf_errors(args: Vec<String>) -> Result<zed::SlashCommandOutput> {
     })
 }
 
+fn run_overleaf_set_context(
+    extension: &OverleafWorkshopExtension,
+    args: Vec<String>,
+) -> Result<zed::SlashCommandOutput> {
+    let context = parse_context_args(args)?;
+    {
+        let mut guard = extension
+            .context
+            .lock()
+            .map_err(|_| "failed to lock in-memory context storage.".to_string())?;
+        *guard = Some(context.clone());
+    }
+
+    let text = format!(
+        "Saved Overleaf context.\n\n- Server: `{}`\n- Project: `{}`\n- Session: `{}`\n\nYou can now run:\n- `/overleaf-compile`\n- `/overleaf-errors`\n- `/overleaf-projects`",
+        context.server_base,
+        context.project_id,
+        mask_cookie(&context.cookie_header)
+    );
+
+    let section = zed::SlashCommandOutputSection {
+        range: zed::Range {
+            start: 0,
+            end: text.len() as u32,
+        },
+        label: "Overleaf Context".to_string(),
+    };
+
+    Ok(zed::SlashCommandOutput {
+        text,
+        sections: vec![section],
+    })
+}
+
 fn request_compile(server_base: &str, project_id: &str, cookie: &str) -> Result<CompileResponse> {
     let project_page = fetch_text(&format!("{server_base}/project/{project_id}"), cookie)?;
     let csrf_token = extract_meta_content(&project_page, "ol-csrfToken")
@@ -264,7 +331,18 @@ fn request_compile(server_base: &str, project_id: &str, cookie: &str) -> Result<
     })
 }
 
-fn parse_server_and_cookie(args: Vec<String>) -> Result<(String, String)> {
+fn parse_server_and_cookie(
+    args: Vec<String>,
+    context: Option<&OverleafContext>,
+) -> Result<(String, String)> {
+    if args.is_empty() {
+        if let Some(saved) = context {
+            return Ok((saved.server_base.clone(), saved.cookie_header.clone()));
+        }
+        return Err(
+            "usage: /overleaf-projects <server-url> <cookie-header>\nexample: /overleaf-projects https://www.overleaf.com overleaf_session2=<cookie>\nor set defaults first with /overleaf-set-context".to_string()
+        );
+    }
     if args.len() < 2 {
         return Err(
             "usage: /overleaf-projects <server-url> <cookie-header>\nexample: /overleaf-projects https://www.overleaf.com overleaf_session2=<cookie>".to_string()
@@ -285,7 +363,26 @@ fn parse_server_and_cookie(args: Vec<String>) -> Result<(String, String)> {
     Ok((normalized_server, cookie.to_string()))
 }
 
-fn parse_server_project_and_cookie(args: Vec<String>) -> Result<(String, String, String)> {
+fn parse_server_project_and_cookie(
+    args: Vec<String>,
+    context: Option<&OverleafContext>,
+) -> Result<(String, String, String)> {
+    if args.is_empty() {
+        if let Some(saved) = context {
+            return Ok((
+                saved.server_base.clone(),
+                saved.project_id.clone(),
+                saved.cookie_header.clone(),
+            ));
+        }
+        return Err(
+            "usage: /overleaf-compile <server-url> <project-id> <cookie-header>\nexample: /overleaf-compile https://www.overleaf.com 1234567890abcdef12345678 overleaf_session2=<cookie>\nor set defaults first with /overleaf-set-context".to_string()
+        );
+    }
+    parse_server_project_and_cookie_explicit(args)
+}
+
+fn parse_server_project_and_cookie_explicit(args: Vec<String>) -> Result<(String, String, String)> {
     if args.len() < 3 {
         return Err(
             "usage: /overleaf-compile <server-url> <project-id> <cookie-header>\nexample: /overleaf-compile https://www.overleaf.com 1234567890abcdef12345678 overleaf_session2=<cookie>".to_string()
@@ -307,6 +404,75 @@ fn parse_server_project_and_cookie(args: Vec<String>) -> Result<(String, String,
         project_id.to_string(),
         cookie.to_string(),
     ))
+}
+
+fn parse_context_args(args: Vec<String>) -> Result<OverleafContext> {
+    if args.len() < 2 {
+        return Err(
+            "usage: /overleaf-set-context <project-id> <session-id>\n   or: /overleaf-set-context <server-url> <project-id> <session-id>".to_string()
+        );
+    }
+
+    let (server_base, project_id, session_input) = if args.len() == 2 {
+        (
+            "https://www.overleaf.com".to_string(),
+            args[0].trim().to_string(),
+            args[1..].join(" "),
+        )
+    } else {
+        (
+            normalize_server(args[0].trim()),
+            args[1].trim().to_string(),
+            args[2..].join(" "),
+        )
+    };
+
+    let session_input = session_input.trim();
+    if project_id.is_empty() || session_input.is_empty() {
+        return Err(
+            "usage: /overleaf-set-context <project-id> <session-id>\n   or: /overleaf-set-context <server-url> <project-id> <session-id>".to_string()
+        );
+    }
+
+    let cookie_header = if session_input.contains('=') {
+        session_input.to_string()
+    } else {
+        format!("overleaf_session2={session_input}")
+    };
+
+    Ok(OverleafContext {
+        server_base,
+        project_id,
+        cookie_header,
+    })
+}
+
+fn load_context(extension: &OverleafWorkshopExtension) -> Result<Option<OverleafContext>> {
+    extension
+        .context
+        .lock()
+        .map_err(|_| "failed to lock in-memory context storage.".to_string())
+        .map(|guard| guard.clone())
+}
+
+fn mask_cookie(cookie_header: &str) -> String {
+    cookie_header
+        .split(';')
+        .map(|part| {
+            let trimmed = part.trim();
+            if let Some((name, value)) = trimmed.split_once('=') {
+                let visible = if value.len() <= 8 {
+                    "*".repeat(value.len())
+                } else {
+                    format!("{}...{}", &value[..4], &value[value.len() - 4..])
+                };
+                format!("{name}={visible}")
+            } else {
+                "***".to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 fn normalize_server(server: &str) -> String {
