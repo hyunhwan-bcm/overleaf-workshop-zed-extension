@@ -30,6 +30,20 @@ to Zed.
     - Triggers compile with the same endpoint as `/overleaf-compile`.
     - Fetches `output.log` from compile artifacts.
     - Summarizes unique error (`! ...`) and warning (`Warning:`) lines.
+- Slash commands: project management
+  - `/overleaf-project-create <project-name>`
+    - Creates a new blank project on the current server.
+  - `/overleaf-project-rename [project-id] <new-project-name>`
+    - Renames the target project. If `project-id` is omitted, uses saved context project.
+  - `/overleaf-project-archive [project-id]`
+  - `/overleaf-project-unarchive [project-id]`
+  - `/overleaf-project-trash [project-id]`
+  - `/overleaf-project-untrash [project-id]`
+  - `/overleaf-project-delete [project-id]`
+    - Project lifecycle operations. If `project-id` is omitted, uses saved context project.
+  - Behavior notes:
+    - These commands use saved base URL/session context.
+    - `project-id` is expected to be a 24-char hex Overleaf id when provided.
 - Slash command: `/overleaf-set-context`
   - Input format:
     - `<project-id> <session-id>` (defaults server to `https://www.overleaf.com`)
@@ -111,10 +125,20 @@ You can also set:
    - `/overleaf-projects https://www.overleaf.com overleaf_session2=<cookie>`
    - `/overleaf-compile https://www.overleaf.com <project-id> overleaf_session2=<cookie>`
    - `/overleaf-errors https://www.overleaf.com <project-id> overleaf_session2=<cookie>`
+   - `/overleaf-project-create My Project From Zed`
+   - `/overleaf-project-rename 699f54729b18bea9d5fbf71d Renamed Project`
+   - `/overleaf-project-trash 699f54729b18bea9d5fbf71d`
+   - `/overleaf-project-untrash 699f54729b18bea9d5fbf71d`
+   - `/overleaf-project-archive 699f54729b18bea9d5fbf71d`
+   - `/overleaf-project-unarchive 699f54729b18bea9d5fbf71d`
+   - `/overleaf-project-delete 699f54729b18bea9d5fbf71d`
    - Or, after setting context:
      - `/overleaf-projects`
      - `/overleaf-compile`
      - `/overleaf-errors`
+     - `/overleaf-project-create My Project`
+     - `/overleaf-project-rename Renamed Project`
+     - `/overleaf-project-trash`
 
 ## Notes
 

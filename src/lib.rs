@@ -62,6 +62,12 @@ struct CompileOutputFile {
     r#type: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct NewProjectResponse {
+    #[serde(rename = "project_id")]
+    project_id: String,
+}
+
 impl zed::Extension for OverleafWorkshopExtension {
     fn new() -> Self
     where
@@ -93,6 +99,41 @@ impl zed::Extension for OverleafWorkshopExtension {
                 label: "https://www.overleaf.com <project-id> overleaf_session2=<cookie>"
                     .to_string(),
                 new_text: "https://www.overleaf.com ".to_string(),
+                run_command: false,
+            }]),
+            "overleaf-project-create" => Ok(vec![zed::SlashCommandArgumentCompletion {
+                label: "<project-name>".to_string(),
+                new_text: "My New Project".to_string(),
+                run_command: false,
+            }]),
+            "overleaf-project-rename" => Ok(vec![zed::SlashCommandArgumentCompletion {
+                label: "[project-id] <new-project-name>".to_string(),
+                new_text: "Renamed Project".to_string(),
+                run_command: false,
+            }]),
+            "overleaf-project-archive" => Ok(vec![zed::SlashCommandArgumentCompletion {
+                label: "[project-id]".to_string(),
+                new_text: "".to_string(),
+                run_command: false,
+            }]),
+            "overleaf-project-unarchive" => Ok(vec![zed::SlashCommandArgumentCompletion {
+                label: "[project-id]".to_string(),
+                new_text: "".to_string(),
+                run_command: false,
+            }]),
+            "overleaf-project-trash" => Ok(vec![zed::SlashCommandArgumentCompletion {
+                label: "[project-id]".to_string(),
+                new_text: "".to_string(),
+                run_command: false,
+            }]),
+            "overleaf-project-untrash" => Ok(vec![zed::SlashCommandArgumentCompletion {
+                label: "[project-id]".to_string(),
+                new_text: "".to_string(),
+                run_command: false,
+            }]),
+            "overleaf-project-delete" => Ok(vec![zed::SlashCommandArgumentCompletion {
+                label: "[project-id]".to_string(),
+                new_text: "".to_string(),
                 run_command: false,
             }]),
             "overleaf-set-context" => Ok(vec![zed::SlashCommandArgumentCompletion {
@@ -130,6 +171,13 @@ impl zed::Extension for OverleafWorkshopExtension {
             "overleaf-projects" => run_overleaf_projects(self, args, worktree),
             "overleaf-compile" => run_overleaf_compile(self, args, worktree),
             "overleaf-errors" => run_overleaf_errors(self, args, worktree),
+            "overleaf-project-create" => run_overleaf_project_create(self, args, worktree),
+            "overleaf-project-rename" => run_overleaf_project_rename(self, args, worktree),
+            "overleaf-project-archive" => run_overleaf_project_archive(self, args, worktree),
+            "overleaf-project-unarchive" => run_overleaf_project_unarchive(self, args, worktree),
+            "overleaf-project-trash" => run_overleaf_project_trash(self, args, worktree),
+            "overleaf-project-untrash" => run_overleaf_project_untrash(self, args, worktree),
+            "overleaf-project-delete" => run_overleaf_project_delete(self, args, worktree),
             "overleaf-set-context" => run_overleaf_set_context(self, args),
             "overleaf-set-base-url" => run_overleaf_set_base_url(self, args, worktree),
             "overleaf-set-project-id" => run_overleaf_set_project_id(self, args, worktree),
@@ -306,6 +354,144 @@ fn run_overleaf_errors(
     })
 }
 
+fn run_overleaf_project_create(
+    extension: &OverleafWorkshopExtension,
+    args: Vec<String>,
+    worktree: Option<&zed::Worktree>,
+) -> Result<zed::SlashCommandOutput> {
+    let context = resolve_context(extension, worktree)?;
+    let (server_base, cookie) = context_server_and_cookie(context.as_ref())?;
+    let project_name = parse_project_name(args)?;
+    let csrf_token = read_csrf_token(&server_base, None, &cookie)?;
+
+    let create_payload = post_json(
+        &format!("{server_base}/project/new"),
+        &cookie,
+        &csrf_token,
+        serde_json::json!({
+            "_csrf": csrf_token,
+            "projectName": project_name,
+            "template": "none"
+        })
+        .to_string(),
+    )?;
+
+    let created = serde_json::from_str::<NewProjectResponse>(&create_payload);
+    let text = if let Ok(created_project) = created {
+        format!(
+            "Created project successfully.\n\n- Project ID: `{}`\n- URL: {}/project/{}",
+            created_project.project_id, server_base, created_project.project_id
+        )
+    } else {
+        format!(
+            "Create project request submitted on `{server_base}`.\n\nResponse preview:\n```\n{}\n```",
+            snippet(&create_payload, 300)
+        )
+    };
+
+    simple_output("Overleaf Project Create", text)
+}
+
+fn run_overleaf_project_rename(
+    extension: &OverleafWorkshopExtension,
+    args: Vec<String>,
+    worktree: Option<&zed::Worktree>,
+) -> Result<zed::SlashCommandOutput> {
+    let context = resolve_context(extension, worktree)?;
+    let (server_base, default_project_id, cookie) =
+        context_server_project_and_cookie(context.as_ref())?;
+    let (project_id, new_name) = parse_project_rename_args(args, default_project_id)?;
+    let csrf_token = read_csrf_token(&server_base, Some(&project_id), &cookie)?;
+
+    let response = post_json(
+        &format!("{server_base}/project/{project_id}/rename"),
+        &cookie,
+        &csrf_token,
+        serde_json::json!({
+            "_csrf": csrf_token,
+            "newProjectName": new_name
+        })
+        .to_string(),
+    )?;
+
+    project_action_output("Renamed project", &server_base, &project_id, response)
+}
+
+fn run_overleaf_project_archive(
+    extension: &OverleafWorkshopExtension,
+    args: Vec<String>,
+    worktree: Option<&zed::Worktree>,
+) -> Result<zed::SlashCommandOutput> {
+    run_project_action_post(
+        extension,
+        worktree,
+        args,
+        "overleaf-project-archive",
+        "Archived project",
+        |server_base, project_id| format!("{server_base}/project/{project_id}/archive"),
+    )
+}
+
+fn run_overleaf_project_unarchive(
+    extension: &OverleafWorkshopExtension,
+    args: Vec<String>,
+    worktree: Option<&zed::Worktree>,
+) -> Result<zed::SlashCommandOutput> {
+    run_project_action_delete(
+        extension,
+        worktree,
+        args,
+        "overleaf-project-unarchive",
+        "Unarchived project",
+        |server_base, project_id| format!("{server_base}/project/{project_id}/archive"),
+    )
+}
+
+fn run_overleaf_project_trash(
+    extension: &OverleafWorkshopExtension,
+    args: Vec<String>,
+    worktree: Option<&zed::Worktree>,
+) -> Result<zed::SlashCommandOutput> {
+    run_project_action_post(
+        extension,
+        worktree,
+        args,
+        "overleaf-project-trash",
+        "Trashed project",
+        |server_base, project_id| format!("{server_base}/project/{project_id}/trash"),
+    )
+}
+
+fn run_overleaf_project_untrash(
+    extension: &OverleafWorkshopExtension,
+    args: Vec<String>,
+    worktree: Option<&zed::Worktree>,
+) -> Result<zed::SlashCommandOutput> {
+    run_project_action_delete(
+        extension,
+        worktree,
+        args,
+        "overleaf-project-untrash",
+        "Untrashed project",
+        |server_base, project_id| format!("{server_base}/project/{project_id}/trash"),
+    )
+}
+
+fn run_overleaf_project_delete(
+    extension: &OverleafWorkshopExtension,
+    args: Vec<String>,
+    worktree: Option<&zed::Worktree>,
+) -> Result<zed::SlashCommandOutput> {
+    run_project_action_delete(
+        extension,
+        worktree,
+        args,
+        "overleaf-project-delete",
+        "Deleted project",
+        |server_base, project_id| format!("{server_base}/project/{project_id}"),
+    )
+}
+
 fn run_overleaf_set_context(
     extension: &OverleafWorkshopExtension,
     args: Vec<String>,
@@ -443,10 +629,172 @@ fn context_output(title: &str, context: &OverleafContext) -> Result<zed::SlashCo
     })
 }
 
+fn simple_output(label: &str, text: String) -> Result<zed::SlashCommandOutput> {
+    let section = zed::SlashCommandOutputSection {
+        range: zed::Range {
+            start: 0,
+            end: text.len() as u32,
+        },
+        label: label.to_string(),
+    };
+    Ok(zed::SlashCommandOutput {
+        text,
+        sections: vec![section],
+    })
+}
+
+fn context_server_and_cookie(context: Option<&OverleafContext>) -> Result<(String, String)> {
+    let server_base = context_server(context).ok_or_else(|| {
+        "missing base-url.\nset it with:\n- /overleaf-set-base-url <server-url>".to_string()
+    })?;
+    let cookie = context_cookie(context).ok_or_else(|| {
+        "missing session.\nset it with:\n- /overleaf-set-session <session-id>".to_string()
+    })?;
+    Ok((server_base, cookie))
+}
+
+fn context_server_project_and_cookie(
+    context: Option<&OverleafContext>,
+) -> Result<(String, String, String)> {
+    let (server_base, cookie) = context_server_and_cookie(context)?;
+    let project_id = context_project(context).ok_or_else(|| {
+        "missing project-id.\nset it with:\n- /overleaf-set-project-id <project-id>".to_string()
+    })?;
+    Ok((server_base, project_id, cookie))
+}
+
+fn parse_project_name(args: Vec<String>) -> Result<String> {
+    let args = normalize_args(args);
+    let project_name = args.join(" ").trim().to_string();
+    if project_name.is_empty() {
+        return Err(
+            "usage: /overleaf-project-create <project-name>\nexample: /overleaf-project-create My New Project".to_string()
+        );
+    }
+    Ok(project_name)
+}
+
+fn parse_project_rename_args(
+    args: Vec<String>,
+    default_project_id: String,
+) -> Result<(String, String)> {
+    let args = normalize_args(args);
+    if args.is_empty() {
+        return Err(
+            "usage: /overleaf-project-rename [project-id] <new-project-name>\nexample: /overleaf-project-rename 699f54729b18bea9d5fbf71d Renamed Project".to_string()
+        );
+    }
+
+    if args.len() > 1 && looks_like_project_id(&args[0]) {
+        let new_name = args[1..].join(" ").trim().to_string();
+        if new_name.is_empty() {
+            return Err(
+                "usage: /overleaf-project-rename [project-id] <new-project-name>\nexample: /overleaf-project-rename 699f54729b18bea9d5fbf71d Renamed Project".to_string()
+            );
+        }
+        return Ok((args[0].clone(), new_name));
+    }
+
+    Ok((default_project_id, args.join(" ")))
+}
+
+fn parse_action_project_id(
+    args: Vec<String>,
+    default_project_id: String,
+    command_name: &str,
+) -> Result<String> {
+    let args = normalize_args(args);
+    if args.is_empty() {
+        return Ok(default_project_id);
+    }
+    if args.len() == 1 && looks_like_project_id(&args[0]) {
+        return Ok(args[0].clone());
+    }
+    Err(format!(
+        "usage: /{command_name} [project-id]\nexample: /{command_name} {default_project_id}"
+    ))
+}
+
+fn run_project_action_post<F>(
+    extension: &OverleafWorkshopExtension,
+    worktree: Option<&zed::Worktree>,
+    args: Vec<String>,
+    command_name: &str,
+    action_label: &str,
+    route_builder: F,
+) -> Result<zed::SlashCommandOutput>
+where
+    F: Fn(&str, &str) -> String,
+{
+    let context = resolve_context(extension, worktree)?;
+    let (server_base, default_project_id, cookie) =
+        context_server_project_and_cookie(context.as_ref())?;
+    let project_id = parse_action_project_id(args, default_project_id, command_name)?;
+    let csrf_token = read_csrf_token(&server_base, Some(&project_id), &cookie)?;
+    let route = route_builder(&server_base, &project_id);
+    let response = post_json(
+        &route,
+        &cookie,
+        &csrf_token,
+        serde_json::json!({"_csrf": csrf_token}).to_string(),
+    )?;
+    project_action_output(action_label, &server_base, &project_id, response)
+}
+
+fn run_project_action_delete<F>(
+    extension: &OverleafWorkshopExtension,
+    worktree: Option<&zed::Worktree>,
+    args: Vec<String>,
+    command_name: &str,
+    action_label: &str,
+    route_builder: F,
+) -> Result<zed::SlashCommandOutput>
+where
+    F: Fn(&str, &str) -> String,
+{
+    let context = resolve_context(extension, worktree)?;
+    let (server_base, default_project_id, cookie) =
+        context_server_project_and_cookie(context.as_ref())?;
+    let project_id = parse_action_project_id(args, default_project_id, command_name)?;
+    let csrf_token = read_csrf_token(&server_base, Some(&project_id), &cookie)?;
+    let route = route_builder(&server_base, &project_id);
+    let response = delete_with_csrf(&route, &cookie, &csrf_token)?;
+    project_action_output(action_label, &server_base, &project_id, response)
+}
+
+fn project_action_output(
+    action_label: &str,
+    server_base: &str,
+    project_id: &str,
+    response: String,
+) -> Result<zed::SlashCommandOutput> {
+    let response_suffix = if response.trim().is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n\nResponse preview:\n```\n{}\n```",
+            snippet(&response, 240)
+        )
+    };
+    simple_output(
+        "Overleaf Project",
+        format!("{action_label} `{project_id}` on `{server_base}`.{response_suffix}"),
+    )
+}
+
+fn read_csrf_token(server_base: &str, project_id: Option<&str>, cookie: &str) -> Result<String> {
+    let page_url = if let Some(project_id) = project_id {
+        format!("{server_base}/project/{project_id}")
+    } else {
+        format!("{server_base}/project")
+    };
+    let page = fetch_text(&page_url, cookie)?;
+    extract_meta_content(&page, "ol-csrfToken")
+        .ok_or_else(|| format!("failed to read CSRF token from `{page_url}`."))
+}
+
 fn request_compile(server_base: &str, project_id: &str, cookie: &str) -> Result<CompileResponse> {
-    let project_page = fetch_text(&format!("{server_base}/project/{project_id}"), cookie)?;
-    let csrf_token = extract_meta_content(&project_page, "ol-csrfToken")
-        .ok_or_else(|| "failed to read CSRF token from project page.".to_string())?;
+    let csrf_token = read_csrf_token(server_base, Some(project_id), cookie)?;
 
     let compile_payload = post_json(
         &format!("{server_base}/project/{project_id}/compile?auto_compile=true"),
@@ -802,6 +1150,10 @@ fn looks_like_server(value: &str) -> bool {
     value.starts_with("http://") || value.starts_with("https://") || value.contains('.')
 }
 
+fn looks_like_project_id(value: &str) -> bool {
+    value.len() == 24 && value.chars().all(|ch| ch.is_ascii_hexdigit())
+}
+
 fn mask_cookie(cookie_header: &str) -> String {
     cookie_header
         .split(';')
@@ -852,6 +1204,20 @@ fn post_json(url: &str, cookie: &str, csrf_token: &str, body: String) -> Result<
         .header("Content-Type", "application/json")
         .header("X-Csrf-Token", csrf_token)
         .body(body)
+        .build()?;
+
+    let response = zed::http_client::fetch(&request)?;
+    String::from_utf8(response.body)
+        .map_err(|_| format!("non-UTF8 response from Overleaf route: {url}"))
+}
+
+fn delete_with_csrf(url: &str, cookie: &str, csrf_token: &str) -> Result<String> {
+    let request = zed::http_client::HttpRequest::builder()
+        .method(zed::http_client::HttpMethod::Delete)
+        .url(url)
+        .header("Cookie", cookie)
+        .header("Connection", "keep-alive")
+        .header("X-Csrf-Token", csrf_token)
         .build()?;
 
     let response = zed::http_client::fetch(&request)?;
