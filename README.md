@@ -30,6 +30,21 @@ to Zed.
     - Triggers compile with the same endpoint as `/overleaf-compile`.
     - Fetches `output.log` from compile artifacts.
     - Summarizes unique error (`! ...`) and warning (`Warning:`) lines.
+- Slash commands: project management
+  - `/overleaf-project-create <project-name>`
+    - Creates a new blank project on the current server.
+  - `/overleaf-project-rename [project-id] <new-project-name>`
+    - Renames the target project. If `project-id` is omitted, uses saved context project.
+  - `/overleaf-project-archive [project-id]`
+  - `/overleaf-project-unarchive [project-id]`
+  - `/overleaf-project-trash [project-id]`
+  - `/overleaf-project-untrash [project-id]`
+  - `/overleaf-project-delete`
+    - Disabled for safety. Use trash/untrash flows.
+    - Project lifecycle operations use saved context project when `project-id` is omitted.
+  - Behavior notes:
+    - These commands use saved base URL/session context.
+    - `project-id` is expected to be a 24-char hex Overleaf id when provided.
 - Slash command: `/overleaf-set-context`
   - Input format:
     - `<project-id> <session-id>` (defaults server to `https://www.overleaf.com`)
@@ -65,7 +80,8 @@ When a command is missing values, the extension resolves context in this order:
 1. Explicit slash command arguments
 2. In-memory context from `/overleaf-set-*` commands
 3. Worktree config file (`.overleaf-workshop.json` or `overleaf-workshop.json`)
-4. Environment variables
+4. Worktree `.env` file
+5. Process environment variables
 
 This allows durable defaults without retyping values each Zed restart.
 
@@ -91,6 +107,21 @@ You can also set:
 - `OVERLEAF_PROJECT_ID`
 - `OVERLEAF_COOKIE` (or `OVERLEAF_SESSION`, `OVERLEAF_SESSION2`)
 
+### `.env` Auto-Load
+
+If your project root has a `.env` file, the extension will read:
+
+```dotenv
+OVERLEAF_BASE_URL=https://www.overleaf.com
+OVERLEAF_PROJECT_ID=699f54729b18bea9d5fbf71d
+OVERLEAF_SESSION2=<session-id>
+```
+
+Equivalent keys also work:
+
+- `OVERLEAF_SERVER` for base URL
+- `OVERLEAF_COOKIE` or `OVERLEAF_SESSION` for session
+
 ## Local Development
 
 1. Build check:
@@ -111,10 +142,19 @@ You can also set:
    - `/overleaf-projects https://www.overleaf.com overleaf_session2=<cookie>`
    - `/overleaf-compile https://www.overleaf.com <project-id> overleaf_session2=<cookie>`
    - `/overleaf-errors https://www.overleaf.com <project-id> overleaf_session2=<cookie>`
+   - `/overleaf-project-create My Project From Zed`
+   - `/overleaf-project-rename 699f54729b18bea9d5fbf71d Renamed Project`
+   - `/overleaf-project-trash 699f54729b18bea9d5fbf71d`
+   - `/overleaf-project-untrash 699f54729b18bea9d5fbf71d`
+   - `/overleaf-project-archive 699f54729b18bea9d5fbf71d`
+   - `/overleaf-project-unarchive 699f54729b18bea9d5fbf71d`
    - Or, after setting context:
      - `/overleaf-projects`
      - `/overleaf-compile`
      - `/overleaf-errors`
+     - `/overleaf-project-create My Project`
+     - `/overleaf-project-rename Renamed Project`
+     - `/overleaf-project-trash`
 
 ## Notes
 

@@ -21,6 +21,34 @@ requires_argument = false
 description = "Compile an Overleaf project and summarize errors/warnings from output.log."
 requires_argument = false
 
+[slash_commands.overleaf-project-create]
+description = "Create a new Overleaf project (uses saved base URL/session context)."
+requires_argument = true
+
+[slash_commands.overleaf-project-rename]
+description = "Rename an Overleaf project by id or current context project id."
+requires_argument = true
+
+[slash_commands.overleaf-project-archive]
+description = "Archive an Overleaf project by id or current context project id."
+requires_argument = false
+
+[slash_commands.overleaf-project-unarchive]
+description = "Unarchive an Overleaf project by id or current context project id."
+requires_argument = false
+
+[slash_commands.overleaf-project-trash]
+description = "Move an Overleaf project to trash by id or current context project id."
+requires_argument = false
+
+[slash_commands.overleaf-project-untrash]
+description = "Restore an Overleaf project from trash by id or current context project id."
+requires_argument = false
+
+[slash_commands.overleaf-project-delete]
+description = "Disabled for safety. Use overleaf-project-trash instead."
+requires_argument = true
+
 [slash_commands.overleaf-set-context]
 description = "Set default server/project/session context for Overleaf commands."
 requires_argument = true
