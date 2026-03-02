@@ -24,3 +24,19 @@ requires_argument = true
 [slash_commands.overleaf-set-context]
 description = "Set default server/project/session context for Overleaf commands."
 requires_argument = true
+
+[slash_commands.overleaf-set-base-url]
+description = "Set default Overleaf base URL."
+requires_argument = true
+
+[slash_commands.overleaf-set-project-id]
+description = "Set default Overleaf project id."
+requires_argument = true
+
+[slash_commands.overleaf-set-session]
+description = "Set default Overleaf session value or cookie header."
+requires_argument = true
+
+[slash_commands.overleaf-show-context]
+description = "Show current Overleaf base URL, project id, and masked session."
+requires_argument = false

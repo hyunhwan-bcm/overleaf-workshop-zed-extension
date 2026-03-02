@@ -43,6 +43,20 @@ to Zed.
     - Partial overrides are supported after context is set:
       - `/overleaf-compile https://www.overleaf.com` (reuse saved project/session)
       - `/overleaf-errors 699f54729b18bea9d5fbf71d` (reuse saved server/session)
+- Slash command: `/overleaf-set-base-url`
+  - Input format: `<server-url>`
+  - Example:
+    - `/overleaf-set-base-url https://www.overleaf.com`
+- Slash command: `/overleaf-set-project-id`
+  - Input format: `<project-id>`
+  - Example:
+    - `/overleaf-set-project-id 699f54729b18bea9d5fbf71d`
+- Slash command: `/overleaf-set-session`
+  - Input format: `<session-id>` or `overleaf_session2=<session-id>`
+  - Example:
+    - `/overleaf-set-session <session-id>`
+- Slash command: `/overleaf-show-context`
+  - Shows currently saved base URL, project ID, and masked session value.
 
 ## Local Development
 
@@ -52,6 +66,11 @@ to Zed.
    - `zed: install dev extension`
    - Select this folder.
 3. Open assistant panel and run:
+   - Individual setup flow:
+     - `/overleaf-set-base-url https://www.overleaf.com`
+     - `/overleaf-set-project-id 699f54729b18bea9d5fbf71d`
+     - `/overleaf-set-session <session-id>`
+     - `/overleaf-show-context`
    - `/overleaf-set-context <project-id> <session-id>`
    - `/overleaf-projects https://www.overleaf.com overleaf_session2=<cookie>`
    - `/overleaf-compile https://www.overleaf.com <project-id> overleaf_session2=<cookie>`

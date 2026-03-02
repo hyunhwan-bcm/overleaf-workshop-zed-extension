@@ -88,6 +88,22 @@ impl zed::Extension for OverleafWorkshopExtension {
                 new_text: "699f54729b18bea9d5fbf71d ".to_string(),
                 run_command: false,
             }]),
+            "overleaf-set-base-url" => Ok(vec![zed::SlashCommandArgumentCompletion {
+                label: "https://www.overleaf.com".to_string(),
+                new_text: "https://www.overleaf.com".to_string(),
+                run_command: false,
+            }]),
+            "overleaf-set-project-id" => Ok(vec![zed::SlashCommandArgumentCompletion {
+                label: "699f54729b18bea9d5fbf71d".to_string(),
+                new_text: "699f54729b18bea9d5fbf71d".to_string(),
+                run_command: false,
+            }]),
+            "overleaf-set-session" => Ok(vec![zed::SlashCommandArgumentCompletion {
+                label: "<session-id> or overleaf_session2=<session-id>".to_string(),
+                new_text: "overleaf_session2=".to_string(),
+                run_command: false,
+            }]),
+            "overleaf-show-context" => Ok(Vec::new()),
             _ => Err(format!("unknown slash command: {}", command.name)),
         }
     }
@@ -103,6 +119,10 @@ impl zed::Extension for OverleafWorkshopExtension {
             "overleaf-compile" => run_overleaf_compile(self, args),
             "overleaf-errors" => run_overleaf_errors(self, args),
             "overleaf-set-context" => run_overleaf_set_context(self, args),
+            "overleaf-set-base-url" => run_overleaf_set_base_url(self, args),
+            "overleaf-set-project-id" => run_overleaf_set_project_id(self, args),
+            "overleaf-set-session" => run_overleaf_set_session(self, args),
+            "overleaf-show-context" => run_overleaf_show_context(self),
             _ => Err(format!("unknown slash command: {}", command.name)),
         }
     }
@@ -303,6 +323,100 @@ fn run_overleaf_set_context(
     })
 }
 
+fn run_overleaf_set_base_url(
+    extension: &OverleafWorkshopExtension,
+    args: Vec<String>,
+) -> Result<zed::SlashCommandOutput> {
+    let args = normalize_args(args);
+    if args.len() != 1 {
+        return Err(
+            "usage: /overleaf-set-base-url <server-url>\nexample: /overleaf-set-base-url https://www.overleaf.com".to_string()
+        );
+    }
+    let server_base = normalize_server(&args[0]);
+    let updated = update_context(extension, |ctx| {
+        ctx.server_base = server_base;
+    })?;
+    context_output("Updated base URL", &updated)
+}
+
+fn run_overleaf_set_project_id(
+    extension: &OverleafWorkshopExtension,
+    args: Vec<String>,
+) -> Result<zed::SlashCommandOutput> {
+    let args = normalize_args(args);
+    if args.len() != 1 {
+        return Err(
+            "usage: /overleaf-set-project-id <project-id>\nexample: /overleaf-set-project-id 699f54729b18bea9d5fbf71d".to_string()
+        );
+    }
+    let project_id = args[0].clone();
+    let updated = update_context(extension, |ctx| {
+        ctx.project_id = project_id;
+    })?;
+    context_output("Updated project id", &updated)
+}
+
+fn run_overleaf_set_session(
+    extension: &OverleafWorkshopExtension,
+    args: Vec<String>,
+) -> Result<zed::SlashCommandOutput> {
+    let args = normalize_args(args);
+    if args.is_empty() {
+        return Err(
+            "usage: /overleaf-set-session <session-id|cookie-header>\nexample: /overleaf-set-session overleaf_session2=<session-id>".to_string()
+        );
+    }
+    let cookie_header = cookie_from_input(&args.join(" "))?;
+    let updated = update_context(extension, |ctx| {
+        ctx.cookie_header = cookie_header;
+    })?;
+    context_output("Updated session", &updated)
+}
+
+fn run_overleaf_show_context(extension: &OverleafWorkshopExtension) -> Result<zed::SlashCommandOutput> {
+    let current = load_context(extension)?;
+    let context = current.unwrap_or(OverleafContext {
+        server_base: String::new(),
+        project_id: String::new(),
+        cookie_header: String::new(),
+    });
+    context_output("Current context", &context)
+}
+
+fn context_output(title: &str, context: &OverleafContext) -> Result<zed::SlashCommandOutput> {
+    let server_line = if context.server_base.trim().is_empty() {
+        "`<not set>`".to_string()
+    } else {
+        format!("`{}`", context.server_base)
+    };
+    let project_line = if context.project_id.trim().is_empty() {
+        "`<not set>`".to_string()
+    } else {
+        format!("`{}`", context.project_id)
+    };
+    let session_line = if context.cookie_header.trim().is_empty() {
+        "`<not set>`".to_string()
+    } else {
+        format!("`{}`", mask_cookie(&context.cookie_header))
+    };
+
+    let text = format!(
+        "{title}.\n\n- Base URL: {server_line}\n- Project ID: {project_line}\n- Session: {session_line}\n\nRun these anytime:\n- `/overleaf-projects`\n- `/overleaf-compile`\n- `/overleaf-errors`"
+    );
+    let section = zed::SlashCommandOutputSection {
+        range: zed::Range {
+            start: 0,
+            end: text.len() as u32,
+        },
+        label: "Overleaf Context".to_string(),
+    };
+    Ok(zed::SlashCommandOutput {
+        text,
+        sections: vec![section],
+    })
+}
+
 fn request_compile(server_base: &str, project_id: &str, cookie: &str) -> Result<CompileResponse> {
     let project_page = fetch_text(&format!("{server_base}/project/{project_id}"), cookie)?;
     let csrf_token = extract_meta_content(&project_page, "ol-csrfToken")
@@ -337,19 +451,20 @@ fn parse_server_and_cookie(
 ) -> Result<(String, String)> {
     let args = normalize_args(args);
     if args.is_empty() {
-        if let Some(saved) = context {
-            return Ok((saved.server_base.clone(), saved.cookie_header.clone()));
+        if let (Some(server_base), Some(cookie)) = (context_server(context), context_cookie(context))
+        {
+            return Ok((server_base, cookie));
         }
         return Err(
-            "usage: /overleaf-projects <server-url> <cookie-header>\nexample: /overleaf-projects https://www.overleaf.com overleaf_session2=<cookie>\nor set defaults first with /overleaf-set-context".to_string()
+            "missing base-url/session.\nset them with:\n- /overleaf-set-base-url <server-url>\n- /overleaf-set-session <session-id>\n(or set all with /overleaf-set-context)".to_string()
         );
     }
     if args.len() == 1 {
-        if let Some(saved) = context {
-            return Ok((normalize_server(&args[0]), saved.cookie_header.clone()));
+        if let Some(cookie) = context_cookie(context) {
+            return Ok((normalize_server(&args[0]), cookie));
         }
         return Err(
-            "usage: /overleaf-projects <server-url> <cookie-header>\nexample: /overleaf-projects https://www.overleaf.com overleaf_session2=<cookie>\nor set defaults first with /overleaf-set-context".to_string()
+            "missing session.\nset it with:\n- /overleaf-set-session <session-id>".to_string()
         );
     }
 
@@ -364,44 +479,68 @@ fn parse_server_project_and_cookie(
 ) -> Result<(String, String, String)> {
     let args = normalize_args(args);
     if args.is_empty() {
-        if let Some(saved) = context {
-            return Ok((
-                saved.server_base.clone(),
-                saved.project_id.clone(),
-                saved.cookie_header.clone(),
-            ));
+        if let (Some(server_base), Some(project_id), Some(cookie)) = (
+            context_server(context),
+            context_project(context),
+            context_cookie(context),
+        ) {
+            return Ok((server_base, project_id, cookie));
         }
         return Err(
-            "usage: /overleaf-compile <server-url> <project-id> <cookie-header>\nexample: /overleaf-compile https://www.overleaf.com 1234567890abcdef12345678 overleaf_session2=<cookie>\nor set defaults first with /overleaf-set-context".to_string()
+            "missing base-url/project-id/session.\nset them with:\n- /overleaf-set-base-url <server-url>\n- /overleaf-set-project-id <project-id>\n- /overleaf-set-session <session-id>\n(or set all with /overleaf-set-context)".to_string()
         );
     }
 
-    if let Some(saved) = context {
+    if context.is_some() {
         if args.len() == 1 {
             if looks_like_server(&args[0]) {
+                let project_id = context_project(context).ok_or_else(|| {
+                    "missing project-id.\nset it with:\n- /overleaf-set-project-id <project-id>"
+                        .to_string()
+                })?;
+                let cookie = context_cookie(context).ok_or_else(|| {
+                    "missing session.\nset it with:\n- /overleaf-set-session <session-id>"
+                        .to_string()
+                })?;
                 return Ok((
                     normalize_server(&args[0]),
-                    saved.project_id.clone(),
-                    saved.cookie_header.clone(),
+                    project_id,
+                    cookie,
                 ));
             }
+            let server_base = context_server(context).ok_or_else(|| {
+                "missing base-url.\nset it with:\n- /overleaf-set-base-url <server-url>"
+                    .to_string()
+            })?;
+            let cookie = context_cookie(context).ok_or_else(|| {
+                "missing session.\nset it with:\n- /overleaf-set-session <session-id>"
+                    .to_string()
+            })?;
             return Ok((
-                saved.server_base.clone(),
+                server_base,
                 args[0].clone(),
-                saved.cookie_header.clone(),
+                cookie,
             ));
         }
 
         if args.len() == 2 {
             if looks_like_server(&args[0]) {
+                let cookie = context_cookie(context).ok_or_else(|| {
+                    "missing session.\nset it with:\n- /overleaf-set-session <session-id>"
+                        .to_string()
+                })?;
                 return Ok((
                     normalize_server(&args[0]),
                     args[1].clone(),
-                    saved.cookie_header.clone(),
+                    cookie,
                 ));
             }
+            let server_base = context_server(context).ok_or_else(|| {
+                "missing base-url.\nset it with:\n- /overleaf-set-base-url <server-url>"
+                    .to_string()
+            })?;
             return Ok((
-                saved.server_base.clone(),
+                server_base,
                 args[0].clone(),
                 cookie_from_input(&args[1])?,
             ));
@@ -477,6 +616,47 @@ fn load_context(extension: &OverleafWorkshopExtension) -> Result<Option<Overleaf
         .lock()
         .map_err(|_| "failed to lock in-memory context storage.".to_string())
         .map(|guard| guard.clone())
+}
+
+fn update_context<F>(extension: &OverleafWorkshopExtension, update: F) -> Result<OverleafContext>
+where
+    F: FnOnce(&mut OverleafContext),
+{
+    let mut guard = extension
+        .context
+        .lock()
+        .map_err(|_| "failed to lock in-memory context storage.".to_string())?;
+    let mut current = guard.clone().unwrap_or(OverleafContext {
+        server_base: String::new(),
+        project_id: String::new(),
+        cookie_header: String::new(),
+    });
+    update(&mut current);
+    *guard = Some(current.clone());
+    Ok(current)
+}
+
+fn context_server(context: Option<&OverleafContext>) -> Option<String> {
+    context.and_then(|ctx| non_empty(&ctx.server_base)).map(str::to_string)
+}
+
+fn context_project(context: Option<&OverleafContext>) -> Option<String> {
+    context.and_then(|ctx| non_empty(&ctx.project_id)).map(str::to_string)
+}
+
+fn context_cookie(context: Option<&OverleafContext>) -> Option<String> {
+    context
+        .and_then(|ctx| non_empty(&ctx.cookie_header))
+        .map(str::to_string)
+}
+
+fn non_empty(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
 }
 
 fn normalize_args(args: Vec<String>) -> Vec<String> {
