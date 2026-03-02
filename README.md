@@ -58,6 +58,39 @@ to Zed.
 - Slash command: `/overleaf-show-context`
   - Shows currently saved base URL, project ID, and masked session value.
 
+## Context Resolution Order
+
+When a command is missing values, the extension resolves context in this order:
+
+1. Explicit slash command arguments
+2. In-memory context from `/overleaf-set-*` commands
+3. Worktree config file (`.overleaf-workshop.json` or `overleaf-workshop.json`)
+4. Environment variables
+
+This allows durable defaults without retyping values each Zed restart.
+
+### Worktree Config File
+
+Create `.overleaf-workshop.json` in your project root:
+
+```json
+{
+  "baseUrl": "https://www.overleaf.com",
+  "projectId": "699f54729b18bea9d5fbf71d",
+  "session": "overleaf_session2=<session-id>"
+}
+```
+
+Supported keys are `baseUrl` (or `server`), `projectId`, and either `session` or `cookie`.
+
+### Environment Variables
+
+You can also set:
+
+- `OVERLEAF_BASE_URL` (or `OVERLEAF_SERVER`)
+- `OVERLEAF_PROJECT_ID`
+- `OVERLEAF_COOKIE` (or `OVERLEAF_SESSION`, `OVERLEAF_SESSION2`)
+
 ## Local Development
 
 1. Build check:
@@ -65,7 +98,10 @@ to Zed.
 2. Install in Zed:
    - `zed: install dev extension`
    - Select this folder.
-3. Open assistant panel and run:
+3. Open Assistant/Agent chat and run:
+   - UI note:
+     - In current Zed builds, you may only see `Agent` mode.
+     - Run these slash commands in the Agent chat input (same command behavior).
    - Individual setup flow:
      - `/overleaf-set-base-url https://www.overleaf.com`
      - `/overleaf-set-project-id 699f54729b18bea9d5fbf71d`
